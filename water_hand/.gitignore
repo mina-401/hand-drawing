@@ -18,3 +18,7 @@ __pycache__/
 
 # 환경변수
 .env
+
+#빌드 산출물
+dist/
+build/
