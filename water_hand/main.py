@@ -123,21 +123,35 @@ def draw_smooth_stroke(canvas, buf, color, size):
             prev = cur
 
 # ── 제스처 감지 ───────────────────────────────────────
-def fingers_up(lms):
+def finger_extend_ratio(lms):
+    """검지 끝 ~ 손목 거리 / 손 크기 비율"""
+    tip   = lms[8]  # 검지 끝
+    wrist = lms[0]  # 손목
+    mid   = lms[9]  # 중지 MCP (손 크기 기준)
+    hand_size = np.hypot(wrist.x - mid.x, wrist.y - mid.y)
+    extend    = np.hypot(tip.x  - wrist.x, tip.y  - wrist.y)
+    return extend / (hand_size + 1e-6)
+
+def other_fingers_up(lms):
+    """중지/약지/새끼 펴짐 여부 (color, save 판별용)"""
     MARGIN = 0.03
-    return [lms[TIP[i]].y < lms[MCP[i]].y - MARGIN for i in range(1, 5)]
+    return [lms[TIP[i]].y < lms[MCP[i]].y - MARGIN for i in range(2, 5)]
 
 def classify_raw(lms):
-    index, middle, ring, pinky = fingers_up(lms)
-    if not index and not middle and not ring and not pinky:
-        return "pen_up"
-    if index and not middle and not ring and not pinky:
-        return "draw"
-    if index and middle and not ring and not pinky:
-        return "color"
-    if index and middle and ring and pinky:
-        return "save"
-    return "none"
+    ratio = finger_extend_ratio(lms)
+    middle, ring, pinky = other_fingers_up(lms)
+
+    if ratio > 0.9 and not middle and not ring and not pinky:
+        return "draw"     # 검지만 확실히 뻗음
+    elif ratio < 0.5 and not middle and not ring and not pinky:
+        return "pen_up"   # 검지 완전히 접힘
+    elif middle and not ring and not pinky:
+        return "color"    # 검지+중지
+    elif middle and ring and pinky:
+        return "save"     # 전체 펼침
+    return "none"         # 애매한 상태 → 무시
+
+
 
 def stable_gesture():
     if not gesture_buffer:
@@ -173,6 +187,17 @@ def draw_toolbar(frame):
             cv2.rectangle(frame, (x-3, 7), (x+53, 53), (255, 255, 255), 2)
     cv2.putText(frame, f"Brush: {brush_size}  (+/- key)",
                 (500, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (180, 180, 180), 1)
+    
+# def draw_safe_zone(frame):
+#     """그리기 가능 영역 표시"""
+#     MARGIN = 80
+#     cv2.rectangle(frame,
+#                   (MARGIN, MARGIN + 60),           # 툴바 아래부터
+#                   (CAM_W - MARGIN, CAM_H - MARGIN),
+#                   (60, 60, 60), 1)
+#     cv2.putText(frame, "Draw Area",
+#                 (MARGIN + 5, MARGIN + 75),
+#                 cv2.FONT_HERSHEY_SIMPLEX, 0.4, (60, 60, 60), 1)
 
 def draw_gesture_label(frame, gesture):
     labels = {
@@ -296,6 +321,7 @@ while True:
     blended[mask2d] = canvas[mask2d]
 
     draw_toolbar(blended)
+    # draw_safe_zone(blended)
     draw_cursor(blended, index_pos, gesture)
 
     show = gesture if gesture != "none" or time.time() < gesture_display_until else "none"
